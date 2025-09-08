@@ -1,0 +1,14 @@
+from fastapi import FastAPI
+import joblib
+app = FastAPI()
+
+model = joblib.load('regression.joblib')
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
+
+@app.get("/predict")
+async def predict_price(size: int, nbRooms: int, hasGarden: bool):
+    y_pred = model.predict([[size, nbRooms, hasGarden]])[0]
+    return {"y_pred": float(y_pred)}
