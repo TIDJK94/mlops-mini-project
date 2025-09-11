@@ -1,0 +1,75 @@
+name: CI/CD — Build, Push and Deploy (Docker Hub)
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  IMAGE_REPO: model-predict
+
+jobs:
+  build_and_push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPO }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPO }}:${{ github.sha }}
+
+  deploy:
+    name: Deploy to VM
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for image availability
+        run: sleep 8
+
+      - name: Deploy on remote VM via SSH
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            set -euo pipefail
+            REPO=${{ secrets.DOCKERHUB_USERNAME }}
+            IMAGE_NAME=${{ env.IMAGE_REPO }}
+            IMAGE="$REPO/$IMAGE_NAME:latest"
+
+            echo "Pulling $IMAGE"
+            docker pull "$IMAGE"
+
+            # Tag locally as 'model-predict' so your existing run command works
+            docker tag "$IMAGE" "$IMAGE_NAME:latest" || true
+
+            # Stop and remove any existing container named mpred
+            if [ "$(docker ps -q -f name=mpred)" ]; then
+              docker stop mpred || true
+            fi
+            if [ "$(docker ps -aq -f name=mpred)" ]; then
+              docker rm mpred || true
+            fi
+
+            # Run using your exact CLI invocation
+            docker run -d --rm -p 5094:5094 --name mpred $IMAGE_NAME:latest
