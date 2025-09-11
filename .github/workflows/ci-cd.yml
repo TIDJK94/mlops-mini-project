@@ -37,6 +37,7 @@ jobs:
     name: Deploy to VM
     needs: build_and_push
     runs-on: ubuntu-latest
+    environment: mlops-course
     steps:
       - name: Wait for image availability
         run: sleep 8
